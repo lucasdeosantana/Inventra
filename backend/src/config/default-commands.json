@@ -1,0 +1,26 @@
+{
+  "commands": {
+    "789000001": {
+      "action": "INCREMENT_QUANTITY",
+      "value": 1
+    },
+    "789000002": {
+      "action": "INCREMENT_QUANTITY",
+      "value": 10
+    },
+    "789000003": {
+      "action": "INCREMENT_QUANTITY",
+      "value": 100
+    },
+    "789000004": {
+      "action": "DECREMENT_QUANTITY",
+      "value": 1
+    },
+    "789000005": {
+      "action": "CONFIRM"
+    },
+    "789000006": {
+      "action": "CANCEL"
+    }
+  }
+}

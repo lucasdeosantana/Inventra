@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmitOnError": true,
+    "declaration": false,
+    "sourceMap": false
+  },
+  "exclude": ["tests", "vitest.config.ts"]
+}
