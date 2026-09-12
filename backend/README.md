@@ -9,7 +9,7 @@ Este projeto foi estruturado para manter confiabilidade, simplicidade, legibilid
 ## Arquitetura escolhida
 
 - Node.js + TypeScript + Fastify
-- SQLite com `better-sqlite3`
+- SQLite com `sqlite3`
 - `decimal.js` para quantidades decimais
 - `Zod` nos próximos refinamentos de validação
 - OpenAPI/Swagger para documentação
@@ -36,9 +36,9 @@ Este projeto foi estruturado para manter confiabilidade, simplicidade, legibilid
 
 ## Requisitos
 
-- Node.js 18+
+- Node.js LTS (20+ recomendado)
 - npm 9+
-- compilador C++ para `better-sqlite3` em alguns ambientes Windows
+- compilador C++ para `sqlite3` em alguns ambientes Windows
 
 ## Instalação
 

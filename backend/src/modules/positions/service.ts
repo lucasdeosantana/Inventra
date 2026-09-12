@@ -1,4 +1,4 @@
-import { getDatabase } from '../../database/connection/index.js';
+import { queryMany, queryOne, runStatement } from '../../database/connection/index.js';
 import { NotFoundError, ValidationError } from '../../shared/errors/http-errors.js';
 
 export interface PositionInput {
@@ -28,16 +28,15 @@ const mapPosition = (row: PositionRecord) => ({
   updatedAt: row.updated_at,
 });
 
-const hasCircularReference = (positionId: number, parentId: number): boolean => {
+const hasCircularReference = async (positionId: number, parentId: number): Promise<boolean> => {
   let currentParentId = parentId;
-  const db = getDatabase();
 
   while (currentParentId) {
     if (currentParentId === positionId) {
       return true;
     }
 
-    const row = db.prepare('SELECT parent_id FROM positions WHERE id = ?').get(currentParentId) as { parent_id: number | null } | undefined;
+    const row = await queryOne<{ parent_id: number | null }>('SELECT parent_id FROM positions WHERE id = ?', [currentParentId]);
     if (!row) {
       return false;
     }
@@ -49,14 +48,12 @@ const hasCircularReference = (positionId: number, parentId: number): boolean => 
 
 export const positionsService = {
   async list() {
-    const db = getDatabase();
-    const rows = db.prepare('SELECT * FROM positions ORDER BY created_at DESC').all() as PositionRecord[];
+    const rows = await queryMany<PositionRecord>('SELECT * FROM positions ORDER BY created_at DESC');
     return rows.map(mapPosition);
   },
 
   async getByCode(code: string) {
-    const db = getDatabase();
-    const row = db.prepare('SELECT * FROM positions WHERE code = ?').get(code) as PositionRecord | undefined;
+    const row = await queryOne<PositionRecord>('SELECT * FROM positions WHERE code = ?', [code]);
 
     if (!row) {
       throw new NotFoundError(`Posição com código "${code}" não encontrada.`);
@@ -74,9 +71,7 @@ export const positionsService = {
       throw new ValidationError('Nome da posição é obrigatório.');
     }
 
-    const db = getDatabase();
-
-    const existing = db.prepare('SELECT id FROM positions WHERE code = ?').get(input.code.trim()) as { id: number } | undefined;
+    const existing = await queryOne<{ id: number }>('SELECT id FROM positions WHERE code = ?', [input.code.trim()]);
     if (existing) {
       throw new ValidationError(`Já existe uma posição com o código "${input.code.trim()}".`);
     }
@@ -84,28 +79,26 @@ export const positionsService = {
     let parentId: number | null = null;
 
     if (input.parentCode) {
-      const parent = db.prepare('SELECT * FROM positions WHERE code = ? AND active = 1').get(input.parentCode.trim()) as PositionRecord | undefined;
+      const parent = await queryOne<PositionRecord>('SELECT * FROM positions WHERE code = ? AND active = 1', [input.parentCode.trim()]);
       if (!parent) {
         throw new NotFoundError(`Posição pai com código "${input.parentCode}" não encontrada.`);
       }
       parentId = parent.id;
     }
 
-    const result = db
-      .prepare(
-        `
-          INSERT INTO positions (code, name, parent_id, active, created_at, updated_at)
-          VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        `,
-      )
-      .run(input.code.trim(), input.name.trim(), parentId, input.active === undefined ? 1 : input.active ? 1 : 0);
+    const result = await runStatement(
+      `
+        INSERT INTO positions (code, name, parent_id, active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `,
+      [input.code.trim(), input.name.trim(), parentId, input.active === undefined ? 1 : input.active ? 1 : 0],
+    );
 
     return this.getById(Number(result.lastInsertRowid));
   },
 
   async getById(id: number) {
-    const db = getDatabase();
-    const row = db.prepare('SELECT * FROM positions WHERE id = ?').get(id) as PositionRecord | undefined;
+    const row = await queryOne<PositionRecord>('SELECT * FROM positions WHERE id = ?', [id]);
 
     if (!row) {
       throw new NotFoundError(`Posição com id "${id}" não encontrada.`);
@@ -115,8 +108,7 @@ export const positionsService = {
   },
 
   async update(id: number, input: Partial<PositionInput>) {
-    const db = getDatabase();
-    const current = db.prepare('SELECT * FROM positions WHERE id = ?').get(id) as PositionRecord | undefined;
+    const current = await queryOne<PositionRecord>('SELECT * FROM positions WHERE id = ?', [id]);
 
     if (!current) {
       throw new NotFoundError(`Posição com id "${id}" não encontrada.`);
@@ -138,7 +130,7 @@ export const positionsService = {
       if (!input.parentCode) {
         nextParentId = null;
       } else {
-        const parent = db.prepare('SELECT * FROM positions WHERE code = ? AND active = 1').get(input.parentCode.trim()) as PositionRecord | undefined;
+        const parent = await queryOne<PositionRecord>('SELECT * FROM positions WHERE code = ? AND active = 1', [input.parentCode.trim()]);
         if (!parent) {
           throw new NotFoundError(`Posição pai com código "${input.parentCode}" não encontrada.`);
         }
@@ -146,75 +138,81 @@ export const positionsService = {
       }
     }
 
-    if (nextParentId && hasCircularReference(id, nextParentId)) {
+    if (nextParentId && (await hasCircularReference(id, nextParentId))) {
       throw new ValidationError('Não é permitido criar referência circular em posições.');
     }
 
-    db.prepare(
+    await runStatement(
       `
         UPDATE positions
         SET code = ?, name = ?, parent_id = ?, active = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `,
-    ).run(nextCode, nextName, nextParentId, input.active === undefined ? current.active : input.active ? 1 : 0, id);
+      [nextCode, nextName, nextParentId, input.active === undefined ? current.active : input.active ? 1 : 0, id],
+    );
 
     return this.getById(id);
   },
 
   async remove(id: number) {
-    const db = getDatabase();
-    const current = db.prepare('SELECT * FROM positions WHERE id = ?').get(id) as PositionRecord | undefined;
+    const current = await queryOne<PositionRecord>('SELECT * FROM positions WHERE id = ?', [id]);
 
     if (!current) {
       throw new NotFoundError(`Posição com id "${id}" não encontrada.`);
     }
 
-    const children = db.prepare('SELECT id FROM positions WHERE parent_id = ?').all(id) as { id: number }[];
+    const children = await queryMany<{ id: number }>('SELECT id FROM positions WHERE parent_id = ?', [id]);
     if (children.length > 0) {
       throw new ValidationError('Não é possível remover uma posição que possui filhos ativos.');
     }
 
-    const assignedProducts = db.prepare('SELECT id FROM product_positions WHERE position_id = ?').all(id) as { id: number }[];
+    const assignedProducts = await queryMany<{ id: number }>('SELECT id FROM product_positions WHERE position_id = ?', [id]);
     if (assignedProducts.length > 0) {
       throw new ValidationError('Não é possível remover uma posição que ainda possui produtos associados.');
     }
 
-    db.prepare('UPDATE positions SET active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
+    await runStatement('UPDATE positions SET active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [id]);
 
     return this.getById(id);
   },
 
   async getChildren(code: string) {
-    const db = getDatabase();
-    const position = db.prepare('SELECT * FROM positions WHERE code = ?').get(code) as PositionRecord | undefined;
+    const position = await queryOne<PositionRecord>('SELECT * FROM positions WHERE code = ?', [code]);
 
     if (!position) {
       throw new NotFoundError(`Posição com código "${code}" não encontrada.`);
     }
 
-    const rows = db.prepare('SELECT * FROM positions WHERE parent_id = ? ORDER BY created_at ASC').all(position.id) as PositionRecord[];
+    const rows = await queryMany<PositionRecord>('SELECT * FROM positions WHERE parent_id = ? ORDER BY created_at ASC', [position.id]);
     return rows.map(mapPosition);
   },
 
   async getContents(code: string) {
-    const db = getDatabase();
-    const position = db.prepare('SELECT * FROM positions WHERE code = ?').get(code) as PositionRecord | undefined;
+    const position = await queryOne<PositionRecord>('SELECT * FROM positions WHERE code = ?', [code]);
 
     if (!position) {
       throw new NotFoundError(`Posição com código "${code}" não encontrada.`);
     }
 
-    const rows = db
-      .prepare(
-        `
-          SELECT pp.id, pp.product_id, pp.position_id, pp.quantity, p.code AS product_code, p.name AS product_name
-          FROM product_positions pp
-          INNER JOIN products p ON p.id = pp.product_id
-          WHERE pp.position_id = ?
-          ORDER BY p.name ASC
-        `,
-      )
-      .all(position.id) as Array<{ id: number; product_id: number; position_id: number; quantity: string; product_code: string; product_name: string }>;
+    const rows = await queryMany<
+      {
+        id: number;
+        product_id: number;
+        position_id: number;
+        quantity: string;
+        product_code: string;
+        product_name: string;
+      }
+    >(
+      `
+        SELECT pp.id, pp.product_id, pp.position_id, pp.quantity, p.code AS product_code, p.name AS product_name
+        FROM product_positions pp
+        INNER JOIN products p ON p.id = pp.product_id
+        WHERE pp.position_id = ?
+        ORDER BY p.name ASC
+      `,
+      [position.id],
+    );
 
     return rows.map((row) => ({
       id: row.id,
@@ -227,8 +225,7 @@ export const positionsService = {
   },
 
   async getTree() {
-    const db = getDatabase();
-    const rows = db.prepare('SELECT * FROM positions WHERE active = 1 ORDER BY created_at ASC').all() as PositionRecord[];
+    const rows = await queryMany<PositionRecord>('SELECT * FROM positions WHERE active = 1 ORDER BY created_at ASC');
 
     type TreeNode = PositionRecord & {
       children: TreeNode[];

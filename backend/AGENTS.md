@@ -8,7 +8,7 @@ Este repositório implementa um backend de controle de estoque orientado a confi
 
 - Node.js + TypeScript + Fastify
 - SQLite para persistência local
-- `better-sqlite3` para transações síncronas e acesso direto ao banco
+- `sqlite3` para acesso ao banco com compatibilidade moderna do Node.js
 - `Decimal.js` para quantidades decimais
 - `Zod` para validação
 - `Vitest` para testes automatizados

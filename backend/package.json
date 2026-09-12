@@ -16,17 +16,17 @@
   "dependencies": {
     "@fastify/swagger": "^8.15.0",
     "@fastify/swagger-ui": "^4.1.1",
-    "better-sqlite3": "^11.10.0",
     "decimal.js": "^10.6.0",
     "fastify": "^4.29.1",
+    "sqlite3": "^5.1.7",
     "zod": "^3.24.1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.20.2",
+    "@types/sqlite3": "^5.1.0",
     "@typescript-eslint/eslint-plugin": "^8.70.0",
     "@typescript-eslint/parser": "^8.70.0",
     "eslint": "^8.57.0",

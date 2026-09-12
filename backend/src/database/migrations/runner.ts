@@ -1,21 +1,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { getDatabase } from '../connection/index.js';
+import { executeScript, queryMany, queryOne, runStatement } from '../connection/index.js';
 
 const migrationDir = path.resolve(process.cwd(), 'src', 'database', 'migrations');
 
-export function runMigrations() {
-  const db = getDatabase();
+export async function runMigrations() {
   const files = fs
     .readdirSync(migrationDir)
     .filter((file) => file.endsWith('.sql'))
     .sort();
 
-  const applied = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'").get();
+  const applied = await queryOne<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'");
 
   if (!applied) {
-    db.exec(`
+    await executeScript(`
       CREATE TABLE schema_migrations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         version TEXT NOT NULL UNIQUE,
@@ -25,7 +24,7 @@ export function runMigrations() {
   }
 
   const alreadyApplied = new Set(
-    (db.prepare('SELECT version FROM schema_migrations').all() as Array<{ version: string }>).map((row) => row.version),
+    (await queryMany<{ version: string }>('SELECT version FROM schema_migrations')).map((row) => row.version),
   );
 
   for (const file of files) {
@@ -35,7 +34,7 @@ export function runMigrations() {
     }
 
     const sql = fs.readFileSync(path.join(migrationDir, file), 'utf8');
-    db.exec(sql);
-    db.prepare('INSERT INTO schema_migrations(version) VALUES (?)').run(version);
+    await executeScript(sql);
+    await runStatement('INSERT INTO schema_migrations(version) VALUES (?)', [version]);
   }
 }

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { getDatabase } from '../../database/connection/index.js';
+import { executeScript, queryMany, queryOne, runStatement } from '../../database/connection/index.js';
 import { NotFoundError, ValidationError } from '../../shared/errors/http-errors.js';
 import { DECIMAL_PLACES } from '../../shared/types/decimal.js';
 import { decimal, normalizeDecimal, multiplyPercent, sumDecimals, toDecimalString } from '../../shared/utils/decimal.js';
@@ -31,9 +31,8 @@ export interface MovementRecord {
   created_at: string;
 }
 
-const getProductByCode = (code: string) => {
-  const db = getDatabase();
-  const row = db.prepare('SELECT * FROM products WHERE code = ?').get(code) as any;
+const getProductByCode = async (code: string) => {
+  const row = await queryOne<any>('SELECT * FROM products WHERE code = ?', [code]);
 
   if (!row) {
     throw new NotFoundError(`Produto com código "${code}" não encontrado.`);
@@ -42,9 +41,8 @@ const getProductByCode = (code: string) => {
   return row;
 };
 
-const getPositionByCode = (code: string) => {
-  const db = getDatabase();
-  const row = db.prepare('SELECT * FROM positions WHERE code = ? AND active = 1').get(code) as any;
+const getPositionByCode = async (code: string) => {
+  const row = await queryOne<any>('SELECT * FROM positions WHERE code = ? AND active = 1', [code]);
 
   if (!row) {
     throw new NotFoundError(`Posição com código "${code}" não encontrada.`);
@@ -111,38 +109,35 @@ const mapMovement = (row: MovementRecord) => ({
 
 export const stockService = {
   async listHistory(productCode?: string) {
-    const db = getDatabase();
-
     let query = 'SELECT * FROM stock_movements';
-    const params: string[] = [];
+    const params: unknown[] = [];
 
     if (productCode) {
-      const product = getProductByCode(productCode);
+      const product = await getProductByCode(productCode);
       query += ' WHERE product_id = ?';
       params.push(String(product.id));
     }
 
     query += ' ORDER BY created_at DESC';
 
-    const rows = db.prepare(query).all(...params) as MovementRecord[];
+    const rows = await queryMany<MovementRecord>(query, params);
     return rows.map(mapMovement);
   },
 
   async move(input: StockMovementInput) {
     validateMovementInput(input);
 
-    const db = getDatabase();
-    const product = getProductByCode(input.productCode.trim());
+    const product = await getProductByCode(input.productCode.trim());
 
     let positionId: number | null = null;
     if (input.positionCode) {
-      const position = getPositionByCode(input.positionCode.trim());
+      const position = await getPositionByCode(input.positionCode.trim());
       positionId = position.id;
     }
 
     const operationId = input.operationId?.trim() ?? randomUUID();
 
-    const existing = db.prepare('SELECT id FROM stock_movements WHERE operation_id = ?').get(operationId) as { id: number } | undefined;
+    const existing = await queryOne<{ id: number }>('SELECT id FROM stock_movements WHERE operation_id = ?', [operationId]);
     if (existing) {
       return this.getMovementByOperationId(operationId);
     }
@@ -166,16 +161,19 @@ export const stockService = {
         ? sumDecimals(previousQuantity, effectiveQuantity).toDecimalPlaces(DECIMAL_PLACES).toString()
         : sumDecimals(previousQuantity, `-${effectiveQuantity}`).toDecimalPlaces(DECIMAL_PLACES).toString();
 
-    const transaction = db.transaction(() => {
-      db.prepare(
+    await executeScript('BEGIN');
+
+    try {
+      await runStatement(
         `
           UPDATE products
           SET quantity = ?, updated_at = CURRENT_TIMESTAMP
           WHERE id = ?
         `,
-      ).run(nextQuantity, product.id);
+        [nextQuantity, product.id],
+      );
 
-      db.prepare(
+      await runStatement(
         `
           INSERT INTO stock_movements (
             product_id,
@@ -191,20 +189,24 @@ export const stockService = {
           )
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         `,
-      ).run(
-        product.id,
-        positionId,
-        input.type,
-        normalizeDecimal(requestedQuantity),
-        normalizeDecimal(effectiveQuantity),
-        normalizeDecimal(previousQuantity),
-        normalizeDecimal(nextQuantity),
-        operationId,
-        input.source ?? null,
+        [
+          product.id,
+          positionId,
+          input.type,
+          normalizeDecimal(requestedQuantity),
+          normalizeDecimal(effectiveQuantity),
+          normalizeDecimal(previousQuantity),
+          normalizeDecimal(nextQuantity),
+          operationId,
+          input.source ?? null,
+        ],
       );
-    });
 
-    transaction();
+      await executeScript('COMMIT');
+    } catch (error) {
+      await executeScript('ROLLBACK');
+      throw error;
+    }
 
     return {
       productId: product.id,
@@ -219,9 +221,7 @@ export const stockService = {
   },
 
   async getMovementByOperationId(operationId: string) {
-    const db = getDatabase();
-
-    const row = db.prepare('SELECT * FROM stock_movements WHERE operation_id = ?').get(operationId) as MovementRecord | undefined;
+    const row = await queryOne<MovementRecord>('SELECT * FROM stock_movements WHERE operation_id = ?', [operationId]);
     if (!row) {
       throw new NotFoundError(`Movimentação com operação "${operationId}" não encontrada.`);
     }
@@ -230,7 +230,7 @@ export const stockService = {
   },
 
   async getStock(productCode: string) {
-    const product = getProductByCode(productCode);
+    const product = await getProductByCode(productCode);
 
     return {
       productCode: product.code,

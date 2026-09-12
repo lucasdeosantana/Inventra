@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 
 import { appConfig } from '../../config/index.js';
-import { getDatabase } from '../../database/connection/index.js';
+import { queryOne } from '../../database/connection/index.js';
 import { NotFoundError } from '../../shared/errors/http-errors.js';
 
 export type CommandAction = 'INCREMENT_QUANTITY' | 'DECREMENT_QUANTITY' | 'CONFIRM' | 'CANCEL';
@@ -34,15 +34,14 @@ export const commandsService = {
     return { code, command };
   },
 
-  classify(code: string) {
-    const db = getDatabase();
-    const product = db.prepare('SELECT code FROM products WHERE code = ?').get(code) as { code: string } | undefined;
+  async classify(code: string) {
+    const product = await queryOne<{ code: string }>('SELECT code FROM products WHERE code = ?', [code]);
 
     if (product) {
       return { type: 'PRODUCT', code };
     }
 
-    const position = db.prepare('SELECT code FROM positions WHERE code = ? AND active = 1').get(code) as { code: string } | undefined;
+    const position = await queryOne<{ code: string }>('SELECT code FROM positions WHERE code = ? AND active = 1', [code]);
 
     if (position) {
       return { type: 'POSITION', code };

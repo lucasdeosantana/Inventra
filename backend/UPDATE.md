@@ -1,5 +1,25 @@
 # Histórico de atualizações
 
+## 2026-09-12 — migração para sqlite3 e atualização da runtime
+
+### Resumo
+
+O backend foi atualizado para usar `sqlite3` em vez de `better-sqlite3`, mantendo o mesmo comportamento funcional da API e dos testes. Também foi aplicada a atualização do ambiente local para a versão LTS do Node.js, com validação da compilação e dos testes após a mudança.
+
+### Alterações
+
+- Substituído `better-sqlite3` por `sqlite3` em `package.json`.
+- Ajustada a conexão SQLite para trabalhar com `sqlite3` e manter o encapsulamento do banco.
+- Reescrita a camada de acesso ao banco nos módulos de produtos, posições, estoque e migrations para usar helper assíncronos compatíveis com `sqlite3`.
+- Atualizado o ambiente local para Node.js LTS (`v24.19.0`) e revalidado `npm install`, `npm run build` e `npm test`.
+- Sincronizada a documentação do projeto para refletir a nova dependência e a runtime adotada.
+
+### Validação
+
+- `npm install` concluído com sucesso na nova configuração.
+- `npm run build` concluído com sucesso.
+- `npm test` concluído com sucesso: 4 testes passaram.
+
 ## 2026-09-11 — implementação inicial funcional
 
 ### Resumo
