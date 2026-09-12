@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserCodeReader, BrowserMultiFormatReader } from '@zxing/browser';
 import './App.css';
 
@@ -23,6 +23,15 @@ type PositionNode = {
   createdAt: string;
   updatedAt: string;
   children: PositionNode[];
+};
+
+type PositionContentItem = {
+  id: number;
+  productId: number;
+  productCode: string;
+  productName: string;
+  positionId: number;
+  quantity: string;
 };
 
 type CommandAction = 'INCREMENT_QUANTITY' | 'DECREMENT_QUANTITY' | 'CONFIRM' | 'CANCEL';
@@ -75,15 +84,24 @@ async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+const percentagePresets = [
+  { label: '-10%', value: 10 },
+  { label: '-50%', value: 50 },
+  { label: '-1/3', value: 33.333333 },
+  { label: '-1/4', value: 25 },
+];
+
 function App() {
   const [products, setProducts] = useState<Product[]>([]);
   const [positionsTree, setPositionsTree] = useState<PositionNode[]>([]);
+  const [positionContents, setPositionContents] = useState<PositionContentItem[]>([]);
   const [commands, setCommands] = useState<CommandsMap>({});
   const [selectedProductCode, setSelectedProductCode] = useState<string | null>(null);
   const [currentPositionCode, setCurrentPositionCode] = useState<string | null>(null);
   const [scanCode, setScanCode] = useState('');
   const [quantity, setQuantity] = useState(1);
-  const [movementType, setMovementType] = useState<'ENTRY' | 'EXIT'>('ENTRY');
+  const [quantityMode, setQuantityMode] = useState<'ABSOLUTE' | 'PERCENT'>('ABSOLUTE');
+  const [movementType, setMovementType] = useState<'ENTRY' | 'EXIT'>('EXIT');
   const [status, setStatus] = useState('Pronto para operar.');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -103,6 +121,25 @@ function App() {
     () => products.find((product) => product.code === selectedProductCode) ?? null,
     [products, selectedProductCode],
   );
+
+  const activePositionName = useMemo(() => {
+    const visit = (items: PositionNode[]): string | null => {
+      for (const item of items) {
+        if (item.code === currentPositionCode) {
+          return item.name;
+        }
+
+        const nestedName = visit(item.children);
+        if (nestedName) {
+          return nestedName;
+        }
+      }
+
+      return null;
+    };
+
+    return visit(positionsTree);
+  }, [currentPositionCode, positionsTree]);
 
   const filteredProducts = useMemo(() => {
     const term = searchText.trim().toLowerCase();
@@ -181,6 +218,15 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!currentPositionCode) {
+      setPositionContents([]);
+      return;
+    }
+
+    void loadPositionContents(currentPositionCode);
+  }, [currentPositionCode]);
+
   const loadInitialData = async () => {
     setIsLoading(true);
 
@@ -194,11 +240,6 @@ function App() {
       setProducts(productsResponse);
       setPositionsTree(positionsResponse);
       setCommands(commandsResponse);
-
-      if (selectedProductCode === null && productsResponse.length > 0) {
-        setSelectedProductCode(productsResponse[0].code);
-      }
-
       setError(null);
       setStatus('Dados carregados.');
     } catch (loadError) {
@@ -206,6 +247,17 @@ function App() {
       setStatus('Não foi possível carregar o sistema.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadPositionContents = async (positionCode: string) => {
+    try {
+      const response = await fetchJson<PositionContentItem[]>(`/api/positions/${encodeURIComponent(positionCode)}/contents`);
+      setPositionContents(response);
+      setError(null);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Erro ao carregar itens da posição.');
+      setPositionContents([]);
     }
   };
 
@@ -235,7 +287,10 @@ function App() {
 
       if (result.type === 'PRODUCT') {
         setSelectedProductCode(result.code);
-        setStatus(`Produto selecionado: ${result.code}`);
+        setMovementType('EXIT');
+        setQuantity(1);
+        setQuantityMode('ABSOLUTE');
+        setStatus(`Produto selecionado: ${result.code}. Saída priorizada.`);
         return;
       }
 
@@ -334,15 +389,25 @@ function App() {
     const normalizedValue = command.value ?? 1;
 
     switch (command.action) {
-      case 'INCREMENT_QUANTITY':
-        setQuantity((current) => Math.max(1, current + normalizedValue));
-        setStatus(`Quantidade ajustada para ${Math.max(1, quantity + normalizedValue)}.`);
+      case 'INCREMENT_QUANTITY': {
+        setQuantityMode('ABSOLUTE');
+        setQuantity((current) => {
+          const next = Math.max(1, current + normalizedValue);
+          setStatus(`Quantidade ajustada para ${next}.`);
+          return next;
+        });
         break;
-      case 'DECREMENT_QUANTITY':
-        setQuantity((current) => Math.max(1, current - normalizedValue));
-        setStatus(`Quantidade ajustada para ${Math.max(1, quantity - normalizedValue)}.`);
+      }
+      case 'DECREMENT_QUANTITY': {
+        setQuantityMode('ABSOLUTE');
+        setQuantity((current) => {
+          const next = Math.max(1, current - normalizedValue);
+          setStatus(`Quantidade ajustada para ${next}.`);
+          return next;
+        });
         break;
-      case 'CONFIRM':
+      }
+      case 'CONFIRM': {
         if (!selectedProduct) {
           setError('Selecione um produto antes de confirmar a movimentação.');
           return;
@@ -353,6 +418,7 @@ function App() {
             productCode: selectedProduct.code,
             type: movementType,
             quantity,
+            isPercent: quantityMode === 'PERCENT',
             positionCode: currentPositionCode ?? undefined,
             source: 'frontend1',
           };
@@ -367,6 +433,7 @@ function App() {
             `${movementType === 'ENTRY' ? 'Entrada' : 'Saída'} confirmada para ${selectedProduct.code}.`,
           );
           setQuantity(1);
+          setQuantityMode('ABSOLUTE');
           setError(null);
           await refreshInventory();
         } catch (movementError) {
@@ -374,14 +441,22 @@ function App() {
           setStatus('Erro ao confirmar movimentação.');
         }
         break;
+      }
       case 'CANCEL':
         setQuantity(1);
-        setMovementType('ENTRY');
+        setQuantityMode('ABSOLUTE');
+        setMovementType('EXIT');
         setStatus(`Operação cancelada para o código ${code}.`);
         break;
       default:
         setStatus(`Comando ${code} executado.`);
     }
+  };
+
+  const applyPreset = (value: number, label: string) => {
+    setQuantity(value);
+    setQuantityMode('PERCENT');
+    setStatus(`Quantidade definida em ${label} sobre o produto atual.`);
   };
 
   const renderPositionTree = (items: PositionNode[]) =>
@@ -411,6 +486,7 @@ function App() {
           <p className="eyebrow">Inventra</p>
           <h1>Operação de estoque</h1>
         </div>
+
         <div className="topbar-badges">
           <span className={`pill ${movementType === 'ENTRY' ? 'entry' : 'exit'}`}>
             {movementType === 'ENTRY' ? 'Entrada' : 'Saída'}
@@ -432,11 +508,153 @@ function App() {
 
       {error && <div className="error-banner">{error}</div>}
 
-      <main className="dashboard">
-        <aside className="panel panel-products">
-          <div className="panel-header">
+      <main className="single-screen">
+        <section className="panel primary-panel">
+          <div className="scan-toolbar">
+            <form className="scan-form" onSubmit={handleCodeSubmit}>
+              <label htmlFor="scanCode">Código do scanner</label>
+              <div className="scan-input-group">
+                <input
+                  id="scanCode"
+                  ref={scanInputRef}
+                  value={scanCode}
+                  onChange={(event) => setScanCode(event.target.value)}
+                  placeholder="Escaneie ou digite um código"
+                />
+                <button type="submit" className="primary-button">
+                  Processar
+                </button>
+              </div>
+            </form>
+
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                if (isCameraOpen) {
+                  stopCamera();
+                  return;
+                }
+
+                void startCamera();
+              }}
+            >
+              {isCameraOpen ? 'Parar câmera' : 'Ler com câmera'}
+            </button>
+          </div>
+
+          <small className="camera-status">{cameraStatus}</small>
+
+          <div className={`camera-panel ${isCameraOpen ? 'visible' : 'hidden'}`}>
+            <video ref={videoRef} className="camera-video" muted playsInline autoPlay />
+          </div>
+
+          <div className="operation-header">
+            <div>
+              <span className="label">Seleção atual</span>
+              <strong className="selected-product-name">
+                {selectedProduct ? `${selectedProduct.code} · ${selectedProduct.name}` : 'Produto ainda não selecionado'}
+              </strong>
+            </div>
+
+            <div className="header-meta">
+              <span className="pill neutral">{currentPositionCode ?? 'Nenhuma posição'}</span>
+              <span className="pill neutral">{selectedProduct ? `${selectedProduct.quantity} ${selectedProduct.unit}` : '0 itens'}</span>
+            </div>
+          </div>
+
+          <div className="movement-selector">
+            <button
+              type="button"
+              className={movementType === 'EXIT' ? 'active' : ''}
+              onClick={() => setMovementType('EXIT')}
+            >
+              Saída
+            </button>
+            <button
+              type="button"
+              className={movementType === 'ENTRY' ? 'active' : ''}
+              onClick={() => setMovementType('ENTRY')}
+            >
+              Entrada
+            </button>
+          </div>
+
+          <div className="quantity-panel">
+            <div className="quantity-header">
+              <span>Quantidade</span>
+              <strong>{quantityMode === 'PERCENT' ? `${quantity}%` : quantity}</strong>
+            </div>
+
+            <div className="preset-grid">
+              {percentagePresets.map((preset) => (
+                <button key={preset.label} type="button" onClick={() => applyPreset(preset.value, preset.label)}>
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="quick-actions">
+              <button
+                type="button"
+                onClick={() => {
+                  setQuantityMode('ABSOLUTE');
+                  setQuantity((current) => Math.max(1, current - 1));
+                }}
+              >
+                -1
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setQuantityMode('ABSOLUTE');
+                  setQuantity((current) => current + 1);
+                }}
+              >
+                +1
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setQuantityMode('ABSOLUTE');
+                  setQuantity(10);
+                }}
+              >
+                10
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setQuantityMode('ABSOLUTE');
+                  setQuantity(100);
+                }}
+              >
+                100
+              </button>
+            </div>
+          </div>
+
+          <div className="action-row">
+            <button type="button" className="primary-button" onClick={() => void applyCommand('confirm', { action: 'CONFIRM' })}>
+              Confirmar
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                setQuantity(1);
+                setQuantityMode('ABSOLUTE');
+                setMovementType('EXIT');
+                setStatus('Operação reiniciada.');
+              }}
+            >
+              Reiniciar
+            </button>
+          </div>
+
+          <div className="panel-header compact-header">
             <h2>Produtos</h2>
-            <button type="button" className="ghost-button" onClick={loadInitialData}>
+            <button type="button" className="ghost-button" onClick={() => void loadInitialData()}>
               Atualizar
             </button>
           </div>
@@ -457,7 +675,10 @@ function App() {
                 className={`product-card ${selectedProductCode === product.code ? 'selected' : ''}`}
                 onClick={() => {
                   setSelectedProductCode(product.code);
-                  setStatus(`Produto selecionado: ${product.code}`);
+                  setQuantity(1);
+                  setQuantityMode('ABSOLUTE');
+                  setMovementType('EXIT');
+                  setStatus(`Produto selecionado: ${product.code}. Saída priorizada.`);
                 }}
               >
                 <span className="product-code">{product.code}</span>
@@ -468,149 +689,67 @@ function App() {
               </button>
             ))}
           </div>
-        </aside>
-
-        <section className="panel panel-operation">
-          <div className="panel-header">
-            <h2>Operação</h2>
-          </div>
-
-          <form className="scan-form" onSubmit={handleCodeSubmit}>
-            <label htmlFor="scanCode">Código lido</label>
-            <div className="scan-input-group">
-              <input
-                id="scanCode"
-                ref={scanInputRef}
-                value={scanCode}
-                onChange={(event) => setScanCode(event.target.value)}
-                placeholder="Escaneie ou digite um código"
-              />
-              <button type="submit" className="primary-button">
-                Processar
-              </button>
-            </div>
-          </form>
-
-          <div className="camera-controls">
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => {
-                if (isCameraOpen) {
-                  stopCamera();
-                  return;
-                }
-
-                void startCamera();
-              }}
-            >
-              {isCameraOpen ? 'Parar câmera' : 'Ler com câmera'}
-            </button>
-            <small className="camera-status">{cameraStatus}</small>
-          </div>
-
-          <div className={`camera-panel ${isCameraOpen ? 'visible' : 'hidden'}`}>
-            <video ref={videoRef} className="camera-video" muted playsInline autoPlay />
-          </div>
-
-          <div className="movement-controls">
-            <button
-              type="button"
-              className={movementType === 'ENTRY' ? 'active' : ''}
-              onClick={() => setMovementType('ENTRY')}
-            >
-              Entrada
-            </button>
-            <button
-              type="button"
-              className={movementType === 'EXIT' ? 'active' : ''}
-              onClick={() => setMovementType('EXIT')}
-            >
-              Saída
-            </button>
-          </div>
-
-          <div className="quantity-panel">
-            <div className="quantity-header">
-              <span>Quantidade</span>
-              <strong>{quantity}</strong>
-            </div>
-            <div className="quantity-actions">
-              <button type="button" onClick={() => setQuantity((current) => Math.max(1, current - 1))}>
-                -1
-              </button>
-              <button type="button" onClick={() => setQuantity((current) => current + 1)}>
-                +1
-              </button>
-              <button type="button" onClick={() => setQuantity(10)}>
-                10
-              </button>
-              <button type="button" onClick={() => setQuantity(100)}>
-                100
-              </button>
-            </div>
-          </div>
-
-          <div className="action-row">
-            <button type="button" className="primary-button" onClick={() => void applyCommand('confirm', { action: 'CONFIRM' })}>
-              Confirmar
-            </button>
-            <button type="button" className="secondary-button" onClick={() => setQuantity(1)}>
-              Resetar
-            </button>
-          </div>
-
-          <div className="summary-card">
-            <h3>Resumo da movimentação</h3>
-            <dl>
-              <div>
-                <dt>Produto</dt>
-                <dd>{selectedProduct ? selectedProduct.name : 'Não selecionado'}</dd>
-              </div>
-              <div>
-                <dt>Local</dt>
-                <dd>{currentPositionCode ?? 'Nenhuma posição ativa'}</dd>
-              </div>
-              <div>
-                <dt>Saldo atual</dt>
-                <dd>{selectedProduct ? `${selectedProduct.quantity} ${selectedProduct.unit}` : '0'}</dd>
-              </div>
-            </dl>
-          </div>
         </section>
 
-        <aside className="panel panel-side">
-          <div className="panel-header">
-            <h2>Posições</h2>
+        <aside className="panel sidebar-panel">
+          <div className="info-block">
+            <div className="panel-header compact-header">
+              <h2>Posição atual</h2>
+            </div>
+
+            <div className="position-summary">
+              <strong>{currentPositionCode ?? 'Nenhuma posição ativa'}</strong>
+              <small>{activePositionName ?? 'Selecione uma posição'}</small>
+            </div>
+
+            <div className="content-list">
+              {positionContents.length > 0 ? (
+                positionContents.map((item) => (
+                  <div key={item.id} className="position-item">
+                    <span className="product-code">{item.productCode}</span>
+                    <strong>{item.productName}</strong>
+                    <small>{item.quantity}</small>
+                  </div>
+                ))
+              ) : (
+                <div className="empty-state">Nenhum item cadastrado nesta posição.</div>
+              )}
+            </div>
           </div>
 
-          <div className="tree-wrapper">{renderPositionTree(positionsTree)}</div>
-
-          <div className="panel-header command-header">
-            <h2>Comandos</h2>
+          <div className="info-block">
+            <div className="panel-header compact-header">
+              <h2>Posições</h2>
+            </div>
+            <div className="tree-wrapper">{renderPositionTree(positionsTree)}</div>
           </div>
 
-          <div className="command-grid">
-            {Object.entries(commands).map(([code, command]) => (
-              <button
-                key={code}
-                type="button"
-                className="command-button"
-                onClick={() => {
-                  void applyCommand(code, command);
-                }}
-              >
-                <span>{code}</span>
-                <small>{command.action}</small>
-              </button>
-            ))}
+          <div className="info-block">
+            <div className="panel-header compact-header">
+              <h2>Comandos</h2>
+            </div>
+            <div className="command-grid">
+              {Object.entries(commands).map(([code, command]) => (
+                <button
+                  key={code}
+                  type="button"
+                  className="command-button"
+                  onClick={() => {
+                    void applyCommand(code, command);
+                  }}
+                >
+                  <span>{code}</span>
+                  <small>{command.action}</small>
+                </button>
+              ))}
+            </div>
           </div>
         </aside>
       </main>
 
       {lastMovement && (
-        <section className="panel panel-footer">
-          <div className="panel-header">
+        <section className="panel movement-card">
+          <div className="panel-header compact-header">
             <h2>Última movimentação</h2>
           </div>
           <div className="movement-result">
