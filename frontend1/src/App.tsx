@@ -168,9 +168,10 @@ function App() {
     }
   }, []);
 
-  useEffect(() => {
+  const focusManualInput = () => {
     scanInputRef.current?.focus();
-  }, []);
+    setStatus('Entrada manual ativa. Digite o código e pressione Enter.');
+  };
 
   useEffect(() => {
     const handleGlobalKeyDown = (event: KeyboardEvent) => {
@@ -279,8 +280,6 @@ function App() {
       return;
     }
 
-    setScanCode(cleanedCode);
-
     try {
       setError(null);
       const result = await fetchJson<ClassificationResult>(`/api/code/${encodeURIComponent(cleanedCode)}`);
@@ -315,7 +314,14 @@ function App() {
 
   const handleCodeSubmit = async (event?: React.FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
+
+    if (!scanCode.trim()) {
+      setError('Informe um código para processar.');
+      return;
+    }
+
     await processCode(scanCode);
+    setScanCode('');
   };
 
   const stopCamera = () => {
@@ -511,21 +517,9 @@ function App() {
       <main className="single-screen">
         <section className="panel primary-panel">
           <div className="scan-toolbar">
-            <form className="scan-form" onSubmit={handleCodeSubmit}>
-              <label htmlFor="scanCode">Código do scanner</label>
-              <div className="scan-input-group">
-                <input
-                  id="scanCode"
-                  ref={scanInputRef}
-                  value={scanCode}
-                  onChange={(event) => setScanCode(event.target.value)}
-                  placeholder="Escaneie ou digite um código"
-                />
-                <button type="submit" className="primary-button">
-                  Processar
-                </button>
-              </div>
-            </form>
+            <button type="button" className="primary-button manual-toggle" onClick={focusManualInput}>
+              Digitar manual
+            </button>
 
             <button
               type="button"
@@ -542,6 +536,17 @@ function App() {
               {isCameraOpen ? 'Parar câmera' : 'Ler com câmera'}
             </button>
           </div>
+
+          <form className="scan-form hidden-manual-form" onSubmit={handleCodeSubmit}>
+            <input
+              id="scanCode"
+              ref={scanInputRef}
+              className="scan-input-hidden"
+              value={scanCode}
+              onChange={(event) => setScanCode(event.target.value)}
+              placeholder="Digite manualmente"
+            />
+          </form>
 
           <small className="camera-status">{cameraStatus}</small>
 

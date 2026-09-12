@@ -1,5 +1,14 @@
 # Update
 
+## 2026-09-12
+
+- Reestruturação da interface do frontend para uma tela única e ocupando 100% da área disponível.
+- Ajuste do fluxo de operação para priorizar saída ao escanear produto e manter entrada como alternativa.
+- Adição dos botões de percentual `-10%`, `-50%`, `-1/3` e `-1/4` para movimentações rápidas sobre um produto.
+- Inclusão da visualização do conteúdo da posição atual após o scan de uma posição.
+- Atualização do comportamento de leitura por scanner para manter o mesmo processamento da API (`/api/code/:code`).
+- Revisão do layout para melhor leitura em tablet/terminal e para reduzir a necessidade de navegação entre telas.
+
 ## 2026-09-11
 
 - Criação do frontend `frontend1` com Vite + React + TypeScript.
