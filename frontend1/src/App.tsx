@@ -91,6 +91,8 @@ const percentagePresets = [
   { label: '-1/4', value: 25 },
 ];
 
+const REFRESH_INTERVAL_MS = 5000;
+
 function App() {
   const [products, setProducts] = useState<Product[]>([]);
   const [positionsTree, setPositionsTree] = useState<PositionNode[]>([]);
@@ -158,6 +160,14 @@ function App() {
 
   useEffect(() => {
     void loadInitialData();
+
+    const refreshTimer = window.setInterval(() => {
+      void loadInitialData(true);
+    }, REFRESH_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(refreshTimer);
+    };
   }, []);
 
   useEffect(() => {
@@ -228,7 +238,7 @@ function App() {
     void loadPositionContents(currentPositionCode);
   }, [currentPositionCode]);
 
-  const loadInitialData = async () => {
+  const loadInitialData = async (silent = false) => {
     setIsLoading(true);
 
     try {
@@ -242,7 +252,10 @@ function App() {
       setPositionsTree(positionsResponse);
       setCommands(commandsResponse);
       setError(null);
-      setStatus('Dados carregados.');
+
+      if (!silent) {
+        setStatus('Dados carregados.');
+      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Erro ao carregar os dados do sistema.');
       setStatus('Não foi possível carregar o sistema.');

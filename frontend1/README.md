@@ -4,13 +4,14 @@ Frontend operacional do Inventra, construído com React + TypeScript + Vite para
 
 ## Visão geral
 
-- Operação em uma única tela, com foco em leitura rápida por scanner e uso em tablet/terminal.
+- Operação em uma única tela central, com foco em leitura rápida por scanner e uso em tablet/terminal.
 - Listagem de produtos com busca por código, nome ou unidade.
 - Seleção de posições em árvore para referência de armazenamento e visualização dos itens da posição atual.
 - Processamento de códigos lidos por scanner, digitados manualmente ou via câmera do navegador.
 - Fluxo de operação com saída priorizada ao escanear um produto, enquanto entrada continua disponível.
 - Ajuste rápido de quantidade com presets de porcentagem (`-10%`, `-50%`, `-1/3`, `-1/4`) e ações de +/- 1, 10 e 100.
 - Feedback de status, erros e última movimentação para operação imediata.
+- Atualização automática periódica dos dados em segundo plano, sem necessidade de recarregar a tela.
 - Estrutura básica de PWA com manifest e service worker.
 
 ## Requisitos
